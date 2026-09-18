@@ -244,13 +244,97 @@ curl -6 "http://[你的公网IPv6]:8765/api/ping"
 
 ---
 
-## 部署到飞牛 NAS（fnOS）
+## 部署到飞牛 NAS（fnOS 图形界面）
 
-1. 把整个目录上传到 NAS（例如 `/vol1/docker/gold-dashboard`）。
-2. **Docker → Compose → 新增项目**：项目名称 `gold-dashboard`，路径选该目录，使用已有的 `docker-compose.yml`，点击部署。
-3. 部署完成后访问 `http://<NAS内网IP>:8765`。若要外网访问，请走 NAS 自带的反向代理/密码保护，**不要直接把 8765 端口映射到公网**。
+全程不用敲命令也能完成；**第 1 步用 SSH 拉代码最省事**，不想开 SSH 就用文件管理器手动传。
 
-确认容器能出网（数据源都在公网）；若 NAS 有代理或 DNS 限制，`docker compose logs` 里会看到行情源报错。
+### 第 1 步：把项目文件放到 NAS 上
+
+推荐目录：`/vol1/1000/docker/gold-dashboard`（`vol1` 换成你实际的存储空间，`1000` 是当前用户目录）。
+
+**方式 A：SSH 一行搞定（推荐）**
+
+1. fnOS 桌面 → **系统设置** → **SSH** → 开启 SSH。
+2. 用任意 SSH 客户端连上 NAS，执行：
+
+```bash
+mkdir -p /vol1/1000/docker && cd /vol1/1000/docker
+git clone https://github.com/dalingo81/gold_web.git gold-dashboard
+cd gold-dashboard
+ls            # 应看到 Dockerfile、docker-compose.yml、gold_server.py、gold/
+```
+
+**方式 B：图形界面手动上传**
+
+在 `/vol1/1000/docker/gold-dashboard` 下依次建好路径并上传这 4 项：
+
+```
+Dockerfile
+docker-compose.yml        ← 也可以在 Compose 面板里粘贴生成，不必上传
+gold_server.py
+gold/index.html
+gold/echarts.min.js       ← 注意要先建 gold 子目录
+```
+
+> **务必确认 `gold/` 子目录存在且里面有两个文件**，否则容器起来了也打不开页面（服务启动时就会提示缺少 index.html）。
+
+### 第 2 步：Compose 面板创建项目
+
+fnOS 桌面 → 打开 **Docker** 应用：
+
+- 较新版本：左侧 **Compose** → 右上角 **新增项目**
+- 部分版本：**容器** → 右上角 **添加** → 弹窗里切到 **docker-compose** 标签
+
+填写四项：
+
+| 字段 | 填什么 |
+| --- | --- |
+| 项目名称 | `gold-dashboard` |
+| 路径 | 第 1 步的目录 `/vol1/1000/docker/gold-dashboard` |
+| 来源 | 选「创建 docker-compose.yml」（或「上传」，内容一样即可） |
+| 配置内容 | 下面那段 YAML |
+
+```yaml
+services:
+  gold:
+    build: .                      # 用上面的路径作为构建上下文
+    image: gold-dashboard:1.0
+    container_name: gold-dashboard
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+      # 需要 IPv6 访问再加一行（要求 daemon 已开 IPv6，一般要在 NAS 上改 daemon.json）：
+      # - "[::]:8765:8765"
+    environment:
+      TZ: Asia/Shanghai
+      GOLD_HOST: "::"
+      GOLD_PORT: 8765
+```
+
+勾选 **创建项目后立即启动** → **确定**。
+
+首次会自动拉 `python:3.12-slim` 并构建，通常 1～3 分钟。看到状态变成 **running / healthy** 就成了。
+
+### 第 3 步：访问
+
+| 场景 | 地址 |
+| --- | --- |
+| 局域网 | `http://<NAS内网IP>:8765` |
+| NAS 本机 | `http://localhost:8765` |
+| IPv6 | `http://[240e:xxxx:xxxx::xxxx]:8765` ← **方括号不能省** |
+
+手机用同一 WiFi 直接开就行；外网访问请走 fnOS 自带的反向代理/域名访问，**不要把 8765 直接映射到公网**。
+
+### 飞牛上常见的坑
+
+| 现象 | 处理 |
+| --- | --- |
+| 构建卡在拉取 `python:3.12-slim` | 国内网络常态。Docker → **镜像仓库** → 右上角**设置** → **加速源设置**，填一个可用的加速地址后重试（加速源随时可能失效，以当时能用为准） |
+| 容器起来了但页面打不开 | 90% 是 `gold/` 目录没传。看容器日志：`docker logs gold-dashboard`，会打印"缺少页面文件" |
+| 提示端口被占用 | 改 YAML 的 `ports` 左侧，比如 `"9000:8765"`，用 `http://NAS_IP:9000` 访问 |
+| IPv6 地址打不开 | 默认端口映射只给 IPv4，加 `"[::]:8765:8765"` 或改用 host 网络；详见 [IPv6 支持](#ipv6-支持) |
+| 更新到新版本 | `cd` 到目录执行 `git pull` → Compose 面板里**重新构建/重启**该项目；或者直接删项目重来 |
+| 面板是否支持 `build:` | 支持。fnOS 的 Compose 就是标准 docker compose，会在「路径」目录下执行构建 |
 
 ---
 

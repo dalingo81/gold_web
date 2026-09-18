@@ -1,3 +1,9 @@
+# 用法一：在本目录执行  docker compose up -d --build
+# 用法二（飞牛 fnOS 等 NAS 图形界面）：
+#   Docker → Compose → 新增项目 → 路径选本项目目录 → 来源选「创建 docker-compose.yml」
+#   → 把本文件内容粘进去 → 勾选「创建项目后立即启动」→ 确定
+#   注意：项目目录里必须同时有 Dockerfile、gold_server.py 和 gold/ 子目录，
+#         否则构建会失败（详见 README 的飞牛部署章节）
 services:
   gold:
     build: .

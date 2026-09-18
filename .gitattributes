@@ -1,6 +1,0 @@
-# 统一换行符，避免 Windows 提交的文件在 Linux/容器内出现 CRLF 问题
-* text=auto eol=lf
-*.bat text eol=crlf
-*.png binary
-*.jpg binary
-echarts.min.js -text -diff -merge
