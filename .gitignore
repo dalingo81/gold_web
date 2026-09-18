@@ -18,3 +18,7 @@ probe*_result.txt
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 打好的镜像包（体积大，不入 git，走 release/网盘分发）
+*.tar
+*.tar.gz

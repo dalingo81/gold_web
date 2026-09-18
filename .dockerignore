@@ -4,8 +4,11 @@
 __pycache__
 *.pyc
 *.pyo
-_dockercheck.txt
-_ls.txt
+_*.py
+_*.txt
+_jscheck
+*.tar
+*.tar.gz
 启动黄金看盘.bat
 README.md
 Dockerfile

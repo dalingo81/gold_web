@@ -81,6 +81,29 @@ docker logs -f gold-dashboard
 docker stop gold-dashboard && docker rm gold-dashboard
 ```
 
+### 方式 B2：离线镜像包导入（无需构建、无需编译环境）
+
+仓库/发布目录附带一个打好包的镜像文件 **`gold-dashboard-1.0.tar.gz`**（约 43 MB，linux/amd64），
+适合 **NAS 上不方便拉 base 镜像、或 build 老失败**的场景——导入后直接跑：
+
+```bash
+docker load -i gold-dashboard-1.0.tar.gz      # 导入镜像，tag 为 gold-dashboard:1.0
+
+docker run -d \
+  --name gold-dashboard \
+  --restart unless-stopped \
+  -p 8765:8765 \
+  -e TZ=Asia/Shanghai \
+  gold-dashboard:1.0
+```
+
+> 该镜像由离线构建器（`build_image_offline.py`，纯 Python 标准库）从公共镜像源抓取
+> `python:3.12-slim-bookworm` 的官方层 + 应用层拼装而成，无需 Docker daemon / docker build。
+> 配置与「方式 A/B」等价：工作目录 `/app`、启动命令、`GOLD_HOST=::` 双栈、8765 端口、
+> 健康检查全部一致；唯一差异是容器内以 `root` 运行（离线构建不创建专用用户），
+> 单用户私有看盘场景无实际风险。
+> 加载前可以先用 `sha256sum`/`Get-FileHash` 校验文件完整性。
+
 ### 方式 C：不用 Docker（Windows / macOS / Linux 本机）
 
 ```bash
