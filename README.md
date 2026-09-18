@@ -1,0 +1,275 @@
+# 黄金实时看盘 · Gold Dashboard
+
+一个零依赖的实时黄金价格看板：**日K线 + 均线 + MACD**，价格可在 **人民币/克** 与 **美元/盎司** 之间一键切换，自动刷新。
+
+后端是纯 Python 标准库写的行情聚合服务（不需要 pip 安装任何包），前端用本地部署的 ECharts 渲染，**打包成单个 Docker 镜像即可放到 NAS / 服务器 / 云主机上常驻**。
+
+> 数据：伦敦金现货 XAU/USD、上海金 Au(T+D)、美元人民币实时汇率。人民币报价 = 国际金价 ÷ 31.1034768 × 实时汇率。
+
+---
+
+## 功能
+
+| 类别 | 说明 |
+| --- | --- |
+| 实时报价 | 现价、涨跌额/幅、今开/昨收/最高/最低、日内区间位置条；价格跳动时红涨绿闪 |
+| 单位切换 | 人民币 / 克 ⇄ 美元 / 盎司，卡片与图表 Y 轴同步换算 |
+| 日K图 | 蜡烛图 + MA5/10/20/60 + MACD 副图 + 当前价虚线 + 缩放拖拽 + 十字光标浮层 |
+| 周期切换 | 近 1 月 / 3 月 / 6 月 / 1 年 / 3 年 / 全部（约 6 年） |
+| 刷新策略 | 3/5/10/30/60 秒可选或暂停；页面切到后台自动暂停；下一次刷新倒计时可见 |
+| 辅助面板 | 上海金 Au(T+D) 报价与内外盘溢价、逐层换算明细、数据源健康状态 |
+| 双运行模式 | 容器/本机服务模式（完整数据）或直接双击 HTML（降级直连公开接口） |
+| IPv6 支持 | 双栈监听 `GOLD_HOST=::`，同一 socket 同时服务 IPv4/IPv6，浏览器用 `http://[地址]:8765` 打开 |
+
+---
+
+## 目录结构
+
+```
+.
+├── Dockerfile            # 镜像定义（python:3.12-slim-bookworm，无 pip 业务依赖）
+├── docker-compose.yml    # 一键编排
+├── .dockerignore
+├── README.md
+├── gold_server.py        # 行情聚合服务（仅 Python 标准库）
+├── gold/
+│   ├── index.html        # 看盘页面（含全部逻辑）
+│   └── echarts.min.js    # ECharts 5.5.1，随包离线部署
+└── 启动黄金看盘.bat       # 不用 Docker 时，Windows 双击启动
+```
+
+---
+
+## 快速开始
+
+### 方式 A：Docker Compose（推荐）
+
+```bash
+docker compose up -d --build
+```
+
+打开 <http://localhost:8765>。
+
+常用操作：
+
+```bash
+docker compose logs -f          # 看日志
+docker compose ps               # 看健康状态（healthy 才正常）
+docker compose down             # 停止并删除容器
+docker compose up -d --build    # 改了代码后重新构建
+```
+
+### 方式 B：手动 build + run
+
+```bash
+docker build -t gold-dashboard:1.0 .
+
+docker run -d \
+  --name gold-dashboard \
+  --restart unless-stopped \
+  -p 8765:8765 \
+  -e TZ=Asia/Shanghai \
+  -e GOLD_HOST=0.0.0.0 \
+  gold-dashboard:1.0
+```
+
+查看状态与日志：
+
+```bash
+docker ps                      # STATUS 列显示 (healthy)
+docker logs -f gold-dashboard
+docker stop gold-dashboard && docker rm gold-dashboard
+```
+
+### 方式 C：不用 Docker（Windows / macOS / Linux 本机）
+
+```bash
+python gold_server.py           # 默认只监听 127.0.0.1:8765，自动打开浏览器
+python gold_server.py --no-browser   # 不开浏览器
+```
+
+Windows 用户直接双击 **`启动黄金看盘.bat`** 即可。要求 Python 3.9+，**无需安装任何第三方包**。
+
+---
+
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `GOLD_HOST` | `127.0.0.1` | 监听地址。取值见下表；**容器里默认 `::`（双栈）** |
+| `GOLD_PORT` | `8765` | 监听端口 |
+| `TZ` | `Asia/Shanghai` | 影响页面"更新时间"与 K 线日期的显示时区 |
+| `GOLD_NO_BROWSER` | 空 | 设为任意非空值则不尝试自动打开浏览器（容器已默认开启） |
+
+### `GOLD_HOST` 取值
+
+| 值 | 效果 |
+| --- | --- |
+| `127.0.0.1` | 仅本机可见（Windows 双击 bat 的默认） |
+| `0.0.0.0` | 监听所有 IPv4 网卡，局域网可访问 |
+| `::` | **IPv4 + IPv6 双栈**（推荐）：一个 socket 同时接受两种协议的连接，容器内默认 |
+| `::1` | 仅 IPv6 环回，只本机可见 |
+| `[240e:xx::x]` 等具体地址 | 只监听该 IPv6 地址，方括号可写可不写 |
+
+命令行参数 `--no-browser` 与环境变量等价。
+
+> 改容器端口时注意两处：`-p 宿主机端口:容器端口` 的右侧要和 `GOLD_PORT` 一致。
+
+---
+
+## HTTP 接口
+
+| 路径 | 说明 |
+| --- | --- |
+| `GET /` | 看盘页面 |
+| `GET /api/ping` | 轻量探活，不触发任何外部请求，用于健康检查/反代监控 |
+| `GET /api/quote` | 实时报价，服务端 3 秒缓存 |
+| `GET /api/kline?days=N` | 日K线，`days` 省略或 0 表示全部（约 6 年），服务端 5 分钟缓存 |
+
+### `/api/ping`
+
+```json
+{"ok": true, "pong": true, "time": "2026-09-18 16:20:00", "tz": "Asia/Shanghai", "uptime": 128}
+```
+
+### `/api/quote`
+
+```json
+{
+  "ok": true,
+  "ts": 1789719453,
+  "server_time": "2026-09-18 16:17:33",
+  "xau": {
+    "price": 4391.89, "prev_close": 4341.62, "open": 4343.47,
+    "high": 4399.49, "low": 4334.23,
+    "change": 50.27, "change_pct": 1.1579,
+    "quote_time": "16:17:00", "quote_date": "2026-09-18",
+    "price_source": "gold-api"
+  },
+  "fx": {"usdcny": 6.697, "bid": 6.6965, "ask": 6.7012, "source": "sina", "time": "16:11:53"},
+  "autd": {"name": "黄金延期", "price": 946.61, "prev_close": 934.59,
+           "open": 938.0, "high": 948.48, "low": 935.03, "change_pct": 1.2861,
+           "time": "2026-09-18 15:30:02"},
+  "derived": {"cny_per_gram": 946.1015, "usd_per_gram": 141.2029},
+  "errors": {},
+  "oz_to_gram": 31.1034768
+}
+```
+
+`errors` 非空表示有数据源降级，键名为源标识、值为异常信息；页面右下角"数据源状态"会同步显示。
+
+### `/api/kline?days=2`
+
+```json
+{"ok": true, "count": 2, "updated": "2026-09-18 16:12:16",
+ "data": [{"date": "2026-09-17", "open": 4260.49, "high": 4381.14, "low": 4257.4, "close": 4341.62}]}
+```
+
+单位为美元/盎司。
+
+---
+
+## 数据源
+
+| 数据 | 来源 | 备注 |
+| --- | --- | --- |
+| 伦敦金现货 XAU/USD | 新浪财经 `hf_XAU`（带当日开高低与昨收） | 主源，需服务端带 Referer 请求，浏览器无法直连 |
+| 现货兜底报价 | `api.gold-api.com` | 无需 Key，CORS 开放 |
+| 上海金 Au(T+D) | 新浪财经 `SGE_AUTD` | 人民币/克，含夜盘 |
+| 美元人民币 | 新浪财经 `USDCNY`，兜底 `open.er-api.com` | 取买卖中价 |
+| 日K线 | 新浪全球期货日K接口 | 一次返回约 20 年 / 5000+ 条 |
+
+**更新机制**：报价按页面设定的频率拉取（默认 5 秒），服务端 3 秒缓存避免打到上游；日K线服务端 5 分钟缓存，前端每 5 分钟拉一次增量，当日那根 K 线由实时价在本地滚动刷新。
+
+换算：`1 金衡盎司 = 31.1034768 克`。实测国际金折算价与上海金 Au(T+D) 通常相差不到 1 元/克，两者互为交叉校验。
+
+---
+
+## IPv6 支持
+
+服务用的是 **IPv6 双栈 socket**（`IPV6_V6ONLY=0`）：绑定 `::` 时同一个 socket 同时接受 IPv6 与 IPv4 连接，不需要开两个进程。若系统不支持双栈，会自动降级为 IPv4 并在启动日志里写明。
+
+**浏览器地址必须给 IPv6 加方括号**（冒号会和端口冲突）：
+
+```
+http://[240e:47e:a10:7da2:2403:f340:30b6:511]:8765
+```
+
+启动时会自动列出本机可用的 IPv4 / IPv6 访问地址，直接复制即可：
+
+```
+ 监听： :::8765　[IPv6 双栈（同时接受 IPv4）]
+ 访问地址：
+   本机    http://localhost:8765
+   局域网  http://192.168.8.103:8765
+   IPv6    http://[240e:47e:...]:8765   ← 浏览器地址必须带方括号
+```
+
+### 本机 / 容器里怎么开
+
+```bash
+# 本机 Python
+export GOLD_HOST=::          # Windows: set GOLD_HOST=::
+python gold_server.py --no-browser
+
+# Docker run：-p [::]:8765:8765 才会把端口映射到宿主机 IPv6
+docker run -d --name gold-dashboard --restart unless-stopped \
+  -p 8765:8765 -p "[::]:8765:8765" \
+  -e TZ=Asia/Shanghai -e GOLD_HOST=:: gold-dashboard:1.0
+```
+
+### 三种部署形态怎么选
+
+| 方案 | 做法 | 适用 |
+| --- | --- | --- |
+| **host 网络**（最省事） | compose 里 `network_mode: host` + `GOLD_HOST=::` | NAS / 家庭服务器 / Linux。容器直接用宿主机网络栈，IPv4、IPv6 全部直连，没有端口映射的坑。**Windows / macOS 的 Docker Desktop 不支持，会静默失败** |
+| **桥接 + IPv6 映射** | ports 加 `"[::]:8765:8765"`，且 daemon 开启 IPv6 | 常规 Linux 服务器。需在 `/etc/docker/daemon.json` 加 `"ipv6": true, "ip6tables": true` 并重启 docker |
+| **反向代理（生产推荐）** | 容器只监听 IPv4/回环，由 Nginx / Caddy 同时监听 IPv4+IPv6 转发 | 要 HTTPS、域名、鉴权的场景。此时容器 `ports` 只暴露到 `127.0.0.1`，公网一律走反代 |
+
+### 验证与排错
+
+```bash
+curl -6 http://[::1]:8765/api/ping     # 容器内：确认 IPv6 栈通
+curl -4 http://127.0.0.1:8765/api/ping # 确认 IPv4 栈通（双栈时两者都应 200）
+curl -6 "http://[你的公网IPv6]:8765/api/ping"
+```
+
+| 现象 | 原因与处理 |
+| --- | --- |
+| 启动日志显示"不支持 IPv6 双栈，降级为 IPv4" | 内核/systemctl 禁用了 IPv6（如 `ipv6.disable=1`）。先恢复系统 IPv6 |
+| IPv4 通、IPv6 不通 | 防火墙/安全组没放行 IPv6 的 8765（Windows 防火墙入站规则、云厂商安全组都要单独配 IPv6） |
+| 容器内 IPv6 通、宿主机外访问不了 | Docker 端口映射默认只给 IPv4，加 `-p "[::]:8765:8765"` 或改用 host 网络 |
+| 浏览器报无法访问 | 地址漏了方括号，或用了临时隐私地址 / `fe80::` 链路本地地址（跨网段无效，要用全局单播地址） |
+| 只有 `fe80::` 开头的地址 | 本机没拿到 IPv6 全局地址（运营商/路由器未下发），先确保访问端自己也有 IPv6 |
+
+---
+
+## 部署到飞牛 NAS（fnOS）
+
+1. 把整个目录上传到 NAS（例如 `/vol1/docker/gold-dashboard`）。
+2. **Docker → Compose → 新增项目**：项目名称 `gold-dashboard`，路径选该目录，使用已有的 `docker-compose.yml`，点击部署。
+3. 部署完成后访问 `http://<NAS内网IP>:8765`。若要外网访问，请走 NAS 自带的反向代理/密码保护，**不要直接把 8765 端口映射到公网**。
+
+确认容器能出网（数据源都在公网）；若 NAS 有代理或 DNS 限制，`docker compose logs` 里会看到行情源报错。
+
+---
+
+## 常见问题
+
+| 现象 | 原因与处理 |
+| --- | --- |
+| 浏览器打不开 `localhost:8765` | 没监听对外地址（检查 `GOLD_HOST`）、端口没映射出来，或容器还没起来：`docker compose ps` 看状态 |
+| IPv6 地址访问不了 | 见上面的 [IPv6 支持](#ipv6-支持)：地址要带方括号，且 Docker 需要显式 IPv6 映射或 host 网络 |状态 |
+| 页面正常但显示"行情获取失败" | 容器访问不到外网，或上游临时限流。看日志 `docker compose logs -f`，一般会持续重试自动恢复 |
+| K 线不出来 | 需要访问 `stock2.finance.sina.com.cn`；若被网络策略拦截，页面会给出明确提示 |
+| 更新时间差 8 小时 | `TZ` 未设为 `Asia/Shanghai`（镜像已内置 tzdata 包，改完重建或直接加 `-e TZ=Asia/Shanghai`） |
+| 端口被占用 | 改 `ports` 左侧为本机空闲端口，例如 `"9000:8765"` |
+| 本机直接双击 HTML | 会进入降级直连模式：能拿到 K 线与报价，但没有上海金与当日精确开高低 |
+
+---
+
+## 说明
+
+- 服务为单进程 `ThreadingHTTPServer`，无数据库、无状态、不落盘，任意重启无副作用，镜像体积极小（约 60 MB）。
+- 容器内以非 root 用户（`gold`, uid 10001）运行。
+- 本页数据来自公开免费接口，可能存在延迟或中断，**仅供参考学习，不构成投资建议**。
