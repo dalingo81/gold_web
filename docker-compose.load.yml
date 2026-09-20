@@ -1,0 +1,41 @@
+# 离线镜像包专用编排（免构建）
+# 适用场景：手上有 gold-dashboard-1.0.tar.gz 镜像文件，不想（或无法）在目标机上 build。
+#
+# 使用方法：
+#   1) 导入镜像（只需一次）：
+#        docker load -i gold-dashboard-1.0.tar.gz
+#      → 导入后镜像 tag 为  gold-dashboard:1.0（与下方 image 必须一致）
+#   2) 启动：
+#        docker compose -f docker-compose.load.yml up -d
+#   3) 停止 / 删除：
+#        docker compose -f docker-compose.load.yml down
+#
+# 飞牛 fnOS 图形界面：Docker → Compose → 新增项目 → 来源选「创建 docker-compose.yml」
+#   → 把本文件内容粘进去 → 项目路径选任意空目录即可（本编排不需要源码文件）
+#   → 勾选「创建项目后立即启动」→ 确定。镜像导入见 README「方式 B2」。
+#
+# 需要从源码重新构建时请改用 docker-compose.yml（含 build: .）。
+
+services:
+  gold:
+    image: gold-dashboard:1.0
+    container_name: gold-dashboard
+    restart: unless-stopped
+    ports:
+      # IPv4 映射（容器内是 IPv6 双栈监听，IPv4 也能连）
+      - "8765:8765"
+      # 需要 IPv6 访问时再加下面这一行（要求 Docker daemon 已开启 IPv6，见 README）：
+      # - "[::]:8765:8765"
+    environment:
+      TZ: Asia/Shanghai
+      GOLD_HOST: "::"        # IPv6 双栈：同一个 socket 同时接受 IPv4 与 IPv6
+      GOLD_PORT: 8765        # 容器内端口，改这里要同步改 ports 右侧
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('GOLD_PORT','8765')+'/api/ping',timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+# 想让容器直接用宿主机网络栈（IPv4/IPv6 自动全通，Linux 适用），把 ports 整段换成：
+#     network_mode: host

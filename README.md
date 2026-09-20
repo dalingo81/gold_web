@@ -97,6 +97,17 @@ docker run -d \
   gold-dashboard:1.0
 ```
 
+想用 Compose 编排（而不是裸 `docker run`），仓库里带了专为镜像包准备的
+**`docker-compose.load.yml`**（纯 `image:` 引用，不含 build）：
+
+```bash
+docker load -i gold-dashboard-1.0.tar.gz
+docker compose -f docker-compose.load.yml up -d      # 停止：... down
+```
+
+飞牛 fnOS 图形界面也一样：Compose → 新增项目 → 把 `docker-compose.load.yml` 的内容粘进去，
+**不需要**再传源码文件（镜像已通过「镜像 → 导入」或 SSH `docker load` 进系统）。
+
 > 该镜像由离线构建器（`build_image_offline.py`，纯 Python 标准库）从公共镜像源抓取
 > `python:3.12-slim-bookworm` 的官方层 + 应用层拼装而成，无需 Docker daemon / docker build。
 > 配置与「方式 A/B」等价：工作目录 `/app`、启动命令、`GOLD_HOST=::` 双栈、8765 端口、
