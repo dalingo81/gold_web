@@ -24,6 +24,8 @@ import urllib.request
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SERVER_PY = os.path.join(ROOT, "gold_server.py")
+# 容器内要打包的静态目录（相对 ROOT）：黄金页 + A股成交额页
+WEB_DIRS = ["gold", "ashare"]
 APP_DIR = os.path.join(ROOT, "gold")
 
 MIRRORS = [
@@ -127,7 +129,7 @@ def pull_manifest_list():
 
 
 def build_meta_layer():
-    """构造 /app 应用层（gold_server.py + gold/）"""
+    """构造 /app 应用层：gold_server.py + 各静态目录（gold/、ashare/ ...）"""
     buf = io.BytesIO()
     now = int(time.time())
     with tarfile.open(fileobj=buf, mode="w", format=tarfile.PAX_FORMAT) as tf:
@@ -141,8 +143,15 @@ def build_meta_layer():
             tf.addfile(ti, io.BytesIO(content))
 
         add_file("app/gold_server.py", open(SERVER_PY, "rb").read(), 0o755)
-        add_file("app/gold/index.html", open(os.path.join(APP_DIR, "index.html"), "rb").read())
-        add_file("app/gold/echarts.min.js", open(os.path.join(APP_DIR, "echarts.min.js"), "rb").read())
+        for d in WEB_DIRS:
+            dpath = os.path.join(ROOT, d)
+            if not os.path.isdir(dpath):
+                log("skip missing dir: %s" % d)
+                continue
+            for fn in sorted(os.listdir(dpath)):
+                fp = os.path.join(dpath, fn)
+                if os.path.isfile(fp):
+                    add_file("app/%s/%s" % (d, fn), open(fp, "rb").read())
     return buf.getvalue()
 
 
@@ -155,7 +164,8 @@ def build_config(base_cfg, diff_ids):
                  ("PYTHONDONTWRITEBYTECODE", "1"),
                  ("GOLD_HOST", "::"),
                  ("GOLD_PORT", "8765"),
-                 ("GOLD_NO_BROWSER", "1")]:
+                 ("GOLD_NO_BROWSER", "1"),
+                 ("PAGES", "/ashare/:ashare")]:
         env = [x for x in env if not x.startswith(k + "=")] + [k + "=" + v]
     c["Env"] = env
     c["WorkingDir"] = "/app"

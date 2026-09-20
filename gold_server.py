@@ -32,6 +32,21 @@ TZNAME = os.environ.get("TZ", "Asia/Shanghai")
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(ROOT, "gold")
 
+# 多页面映射：URL 路径（以 / 结尾）-> 相对 ROOT 的目录。
+# 通过 PAGES 环境变量追加，值形如  ashare/:ashare  （路径前缀:目录，逗号分隔）。
+# 容器默认 PAGES=/ashare/:ashare，使黄金页在 / 、A股成交额页在 /ashare/ 同容器服务。
+PAGES = {"__default__": {}}
+_pages_env = os.environ.get("PAGES", "").strip()
+if _pages_env:
+    for pair in _pages_env.split(","):
+        if ":" in pair:
+            prefix, d = pair.split(":", 1)
+            PAGES[prefix.strip().rstrip("/") + "/"] = d.strip()
+elif os.path.isdir(os.path.join(ROOT, "ashare")):
+    # 没显式配置但目录存在（比如直接放了 ashare/ 子目录）也自动挂上
+    PAGES["/ashare/"] = "ashare"
+PAGES.pop("__default__")
+
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 SINA_REF = "https://finance.sina.com.cn"
@@ -360,6 +375,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path in ("/", "/index.html"):
                 self._file(os.path.join(WEB, "index.html"), "text/html; charset=utf-8")
+            elif path in PAGES:
+                # 多页面入口：如 /ashare/ -> ashare/index.html（PAGES = {"ashare/": "ashare"}）
+                self._file(os.path.join(ROOT, PAGES[path], "index.html"), "text/html; charset=utf-8")
             elif path.startswith("/api/ping"):
                 # 轻量探活：不触发任何外部请求，供 Docker HEALTHCHECK / 负载均衡使用
                 self._send(200, json.dumps({
@@ -381,12 +399,26 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, json.dumps({"ok": False, "error": "unknown api"}))
             else:
                 rel = path.lstrip("/")
-                fp = os.path.normpath(os.path.join(WEB, rel))
-                if fp.startswith(WEB) and os.path.isfile(fp):
-                    ext = os.path.splitext(fp)[1].lower()
-                    self._file(fp, MIME.get(ext, "application/octet-stream"))
-                else:
-                    self._send(404, "not found", "text/plain; charset=utf-8")
+                # 先尝试各 PAGES 前缀下的子资源（如 /ashare/echarts.min.js）
+                hit = False
+                for prefix, d in PAGES.items():
+                    pfx = prefix.lstrip("/")            # "ashare/"
+                    if rel.startswith(pfx):
+                        sub = rel[len(pfx):]
+                        base = os.path.abspath(os.path.join(ROOT, d))
+                        fp = os.path.normpath(os.path.join(base, sub))
+                        if fp.startswith(base) and os.path.isfile(fp):
+                            ext = os.path.splitext(fp)[1].lower()
+                            self._file(fp, MIME.get(ext, "application/octet-stream"))
+                            hit = True
+                            break
+                if not hit:
+                    fp = os.path.normpath(os.path.join(WEB, rel))
+                    if fp.startswith(WEB) and os.path.isfile(fp):
+                        ext = os.path.splitext(fp)[1].lower()
+                        self._file(fp, MIME.get(ext, "application/octet-stream"))
+                    else:
+                        self._send(404, "not found", "text/plain; charset=utf-8")
         except Exception as e:
             self._send(500, json.dumps({"ok": False, "error": "%s: %s" % (type(e).__name__, e)},
                                        ensure_ascii=False))
@@ -477,6 +509,8 @@ def main():
     print(" 黄金行情服务已启动")
     print(" 监听： %s:%s　[%s]" % (real_host, actual_port, mode))
     print(" 时区： %s　当前时间： %s" % (TZNAME, now_str()))
+    if PAGES:
+        print(" 页面入口： / (黄金)　" + "　".join("/%s (%s)" % (p.rstrip("/"), d) for p, d in PAGES.items()))
     if real_host in ("127.0.0.1", "::1"):
         print(" 本机访问： http://localhost:%d  (仅本机可见)" % actual_port)
     else:

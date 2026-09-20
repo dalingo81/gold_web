@@ -17,6 +17,10 @@ WORKDIR /app
 # 依赖固定且极少，先拷 requirements 思维这里不需要；直接拷应用文件
 COPY gold_server.py ./
 COPY gold/ ./gold/
+COPY ashare/ ./ashare/
+
+# 两个页面同容器服务：黄金在 / ，A股成交额在 /ashare/
+ENV PAGES=/ashare/:ashare
 
 # 容器里没有浏览器，服务用非 root 用户运行
 RUN useradd --system --create-home --uid 10001 gold && chown -R gold:gold /app

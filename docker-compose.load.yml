@@ -22,14 +22,16 @@ services:
     container_name: gold-dashboard
     restart: unless-stopped
     ports:
-      # IPv4 映射（容器内是 IPv6 双栈监听，IPv4 也能连）
-      - "8765:8765"
+      # 宿主机 9000 → 容器 8765（对外用 9000，容器内逻辑不动）
+      # 想改成别的端口：改左边数字即可，如 "8080:8765"
+      - "9000:8765"
       # 需要 IPv6 访问时再加下面这一行（要求 Docker daemon 已开启 IPv6，见 README）：
-      # - "[::]:8765:8765"
+      # - "[::]:9000:8765"
     environment:
       TZ: Asia/Shanghai
       GOLD_HOST: "::"        # IPv6 双栈：同一个 socket 同时接受 IPv4 与 IPv6
       GOLD_PORT: 8765        # 容器内端口，改这里要同步改 ports 右侧
+      PAGES: "/ashare/:ashare"   # 双页面：黄金在 / ，A股成交额在 /ashare/
     healthcheck:
       test: ["CMD", "python", "-c", "import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('GOLD_PORT','8765')+'/api/ping',timeout=5)"]
       interval: 60s

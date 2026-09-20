@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A股每日成交额 · 上证指数日K</title>
+<script src="echarts.min.js"></script>
+<style>
+  :root{
+    --bg:#f4f6fa; --card:#ffffff; --line:#e6e9f0; --line-soft:#f0f2f6;
+    --tx:#1c2434; --tx2:#5c6679; --tx3:#98a1b3; --chip:#eef1f6;
+    --up:#e13b3b; --down:#0da35c; --flat:#5c6679;   /* A股：红涨绿跌 */
+    --gold:#c9971f;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"PingFang SC","Microsoft YaHei",-apple-system,Segoe UI,Roboto,sans-serif;
+       background:var(--bg);color:var(--tx);padding:18px 20px 34px}
+  a{color:#2b6cb0;text-decoration:none}
+  .top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+  .logo{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+        background:linear-gradient(145deg,#f7d774,#c9971f);color:#fff;font-size:19px;font-weight:700}
+  h1{font-size:19px;font-weight:700}
+  h1 small{font-size:12.5px;color:var(--tx3);font-weight:400;margin-left:8px}
+  .spacer{flex:1}
+  .seg{display:inline-flex;background:var(--chip);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}
+  .seg button{border:0;background:transparent;padding:6px 14px;border-radius:7px;cursor:pointer;color:var(--tx2);font-size:13px}
+  .seg button.on{background:#fff;color:var(--tx);font-weight:640;box-shadow:0 1px 3px rgba(20,28,45,.12)}
+  .refresh{border:1px solid var(--line);background:#fff;border-radius:9px;padding:6px 12px;color:var(--tx2);font-size:13px}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:15px 18px;box-shadow:0 1px 3px rgba(20,28,45,.04)}
+  .card .k{font-size:12px;color:var(--tx3);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+  .card .v{font-size:27px;font-weight:720;letter-spacing:.2px}
+  .card .s{font-size:12px;color:var(--tx2);margin-top:6px}
+  .up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--flat)}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 3px rgba(20,28,45,.04);margin-bottom:12px;overflow:hidden}
+  .panel h3{font-size:13.5px;font-weight:640;padding:13px 18px 0;color:var(--tx2)}
+  .panel h3 .tag{font-size:11px;font-weight:500;color:var(--tx3);background:var(--chip);padding:2px 7px;border-radius:5px;margin-left:6px}
+  .ma-btns{padding:8px 18px 0;display:flex;gap:12px;font-size:12.5px;color:var(--tx2)}
+  .ma-btns label{cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+  .ma-btns input{cursor:pointer}
+  #chart{width:100%;height:600px}
+  #chart-vol{width:100%;height:190px;border-top:1px dashed var(--line-soft)}
+  .foot{font-size:12px;color:var(--tx3);margin-top:10px;line-height:1.8}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#c3c9d4;flex:none}
+  .dot.live{background:#0da35c;box-shadow:0 0 0 3px rgba(13,163,92,.16);animation:pulse 1.8s infinite}
+  .dot.warn{background:#e0a614;box-shadow:0 0 0 3px rgba(224,166,20,.16)}
+  .dot.err{background:#e13b3b;box-shadow:0 0 0 3px rgba(225,59,59,.16)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  .errbox{margin:10px 18px;padding:10px 13px;border-radius:9px;background:#fdeaea;color:#a32828;font-size:13px;display:none}
+  @media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="logo">A</div>
+  <h1>A股每日成交额<small>上证指数日K + 沪深两市每日成交总金额</small></h1>
+  <div class="spacer"></div>
+  <div class="seg" id="seg-range"></div>
+  <select class="refresh" id="freq">
+    <option value="3000">3 秒</option>
+    <option value="5000" selected>5 秒</option>
+    <option value="15000">15 秒</option>
+    <option value="30000">30 秒</option>
+    <option value="60000">60 秒</option>
+    <option value="0">暂停</option>
+  </select>
+  <span id="status" style="font-size:12.5px;color:var(--tx3);display:inline-flex;align-items:center;gap:6px">
+    <span class="dot" id="st-dot"></span><span id="st-txt">加载中…</span>
+  </span>
+</div>
+
+<div class="cards">
+  <div class="card">
+    <div class="k">今日两市成交额 <span class="dot live"></span></div>
+    <div class="v" id="c-today">--</div>
+    <div class="s" id="c-today-s">--</div>
+  </div>
+  <div class="card">
+    <div class="k">昨日两市成交额</div>
+    <div class="v" id="c-yest">--</div>
+    <div class="s" id="c-yest-s">--</div>
+  </div>
+  <div class="card">
+    <div class="k">5 日均值</div>
+    <div class="v" id="c-ma5">--</div>
+    <div class="s" id="c-ma5-s">--</div>
+  </div>
+  <div class="card">
+    <div class="k">上证指数</div>
+    <div class="v" id="c-idx">--</div>
+    <div class="s" id="c-idx-s">--</div>
+  </div>
+</div>
+
+<div class="panel">
+  <h3>上证指数 日K <span class="tag">红涨绿跌</span></h3>
+  <div class="ma-btns" id="ma-btns">
+    <label><input type="checkbox" data-ma="5" checked> MA5</label>
+    <label><input type="checkbox" data-ma="10" checked> MA10</label>
+    <label><input type="checkbox" data-ma="20" checked> MA20</label>
+    <label><input type="checkbox" data-ma="60" checked> MA60</label>
+  </div>
+  <div id="chart"></div>
+</div>
+
+<div class="panel">
+  <h3 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">两市每日成交总金额 <span class="tag" id="vol-tag">上证 + 深证综指，不含北交所</span>
+    <span style="flex:1"></span>
+    <span class="seg" id="seg-vol">
+      <button data-v="both" class="on">柱+线</button>
+      <button data-v="bar">柱状</button>
+      <button data-v="line">曲线</button>
+    </span>
+  </h3>
+  <div id="chart-vol"></div>
+</div>
+
+<div class="foot">
+  数据来源：东方财富（push2his/push2，浏览器直连）。两市成交额 ≈ 上证指数成交额 + 深证综指成交额（未含北交所，误差约 1~2%）。
+  交易日 15:00 后为当日定盘数据；盘中每 5 秒刷新实时成交额。行情有延迟，仅供参考，不构成投资建议。
+</div>
+<div class="errbox" id="errbox"></div>
+
+<script>
+(function(){
+  'use strict';
+  var $ = function(id){ return document.getElementById(id); };
+  var UP='#e13b3b', DOWN='#0da35c', FLAT='#5c6679';
+  var MA_COLORS = { 5:'#e8963c', 10:'#2b7fd4', 20:'#9a5fd0', 60:'#0f9d8e' };
+  var RANGES = [
+    {k:'1月', d:30}, {k:'3月', d:90}, {k:'6月', d:180},
+    {k:'1年', d:365}, {k:'3年', d:1095}, {k:'全部', d:0}
+  ];
+  var state = {
+    range: 365,
+    rows: [],        // {date,o,h,l,c,vol,amt} 上证；amtTot=两市合计
+    ma: {5:true,10:true,20:true,60:true},
+    volMode: 'both', // bar / line / both
+    chart:null, chartVol:null, timer:null,
+    loading:false
+  };
+
+  /* ---------- 工具 ---------- */
+  function fmtAmt(y){
+    if(y==null||isNaN(y)) return '--';
+    if(Math.abs(y) >= 1e12) return (y/1e12).toFixed(2) + ' 万亿';
+    if(Math.abs(y) >= 1e8) return (y/1e8).toFixed(0) + ' 亿';
+    return (y/1e4).toFixed(0) + ' 万';
+  }
+  function fmtAmtLong(y){
+    if(y==null||isNaN(y)) return '--';
+    return (y/1e8).toFixed(0) + ' 亿（' + (y/1e12).toFixed(2) + ' 万亿）';
+  }
+  function fmtPct(x){ return (x>=0?'+':'') + (x).toFixed(2) + '%'; }
+  function setDot(cls, txt){
+    $('st-dot').className = 'dot ' + cls;
+    $('st-txt').textContent = txt;
+  }
+  function fmtDate(d){ return d.getFullYear()+''+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0'); }
+  function begDate(days){
+    if(!days) return '19900101';
+    var d = new Date();
+    d.setDate(d.getDate()-days);
+    return fmtDate(d);
+  }
+  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+  /* ---------- 数据拉取 ---------- */
+  var EM_HIS='https://push2his.eastmoney.com/api/qt/stock/kline/get';
+  var EM_REAL='https://push2.eastmoney.com/api/qt/stock/get';
+  function hisUrl(secid, beg){
+    return EM_HIS+'?secid='+secid+
+      '&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57'+
+      '&klt=101&fqt=0&beg='+beg+'&end=20500101&_='+Date.now();
+  }
+  function realUrl(secid){
+    return EM_REAL+'?secid='+secid+'&fields=f43,f44,f45,f46,f47,f48,f57,f58,f60,f170&_='+Date.now();
+  }
+  function getJSON(url, timeout){
+    return new Promise(function(res, rej){
+      var ctl = new AbortController();
+      var t = setTimeout(function(){ ctl.abort(); }, timeout || 20000);
+      fetch(url, {signal: ctl.signal, cache:'no-store'})
+        .then(function(r){ return r.json(); })
+        .then(function(j){ clearTimeout(t); res(j); })
+        .catch(function(e){ clearTimeout(t); rej(e); });
+    });
+  }
+
+  function parseKline(j){
+    var rows = [];
+    var arr = (j && j.data && j.data.klines) || [];
+    for (var i=0;i<arr.length;i++){
+      var p = arr[i].split(',');
+      // date,open,close,high,low,volume,amount
+      rows.push({date:p[0], o:+p[1], c:+p[2], h:+p[3], l:+p[4], vol:+p[5], amt:+p[6]});
+    }
+    return rows;
+  }
+
+  function loadData(){
+    if (state.loading) return Promise.resolve();
+    state.loading = true;
+    var beg = begDate(state.range);
+    return Promise.all([
+      getJSON(hisUrl('1.000001', beg)),   // 上证指数
+      getJSON(hisUrl('0.399106', beg)),   // 深证综指
+      getJSON(realUrl('1.000001')),
+      getJSON(realUrl('0.399106'))
+    ]).then(function(res){
+      var sh = parseKline(res[0]);
+      var sz = parseKline(res[1]);
+      var szMap = {};
+      for (var i=0;i<sz.length;i++) szMap[sz[i].date] = sz[i].amt;
+      for (var j=0;j<sh.length;j++){
+        sh[j].amtTot = sh[j].amt + (szMap[sh[j].date] || 0);
+      }
+      state.rows = sh;
+      // 实时行情合并进今日 K 线
+      applyRealtime(res[2], res[3]);
+      setDot('live', '已连接 · 东财');
+      renderAll();
+      state.loading = false;
+      return true;
+    }).catch(function(e){
+      state.loading = false;
+      setDot('err', '数据源异常');
+      $('errbox').textContent = '行情接口请求失败：' + esc(e.message || e) + '。请检查网络（需要能访问 push2his.eastmoney.com）。';
+      $('errbox').style.display = 'block';
+      return false;
+    });
+  }
+
+  function applyRealtime(shReal, szReal){
+    var d = function(j){ return (j && j.data) || null; };
+    var a = d(shReal), b = d(szReal);
+    if (!a || !b) return;
+    // 上证实时
+    var idx = +(a.f43)/100, chg = +(a.f170)/100;
+    $('c-idx').textContent = idx.toFixed(2);
+    $('c-idx').className = 'v ' + (chg>0?'up':chg<0?'down':'flat');
+    $('c-idx-s').textContent = fmtPct(chg) + '（涨跌额 ' + (chg>=0?'+':'') + (idx - lastClose()).toFixed(2) + '）';
+    // 今日两市成交额
+    var todayAmt = (+a.f48) + (+b.f48);
+    $('c-today').textContent = fmtAmt(todayAmt);
+    $('c-today').className = 'v ' + amtVsYesterday(todayAmt);
+    $('c-today-s').textContent = '实时 · ' + fmtAmtLong(todayAmt);
+    // 更新今日 K 线（若数据里已有今日）
+    var rows = state.rows;
+    if (rows.length){
+      var last = rows[rows.length-1];
+      var now = new Date();
+      var todayStr = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+      if (last.date === todayStr){
+        last.c = idx;
+        last.h = Math.max(last.h, idx);
+        last.l = Math.min(last.l, idx);
+        last.amt = (+a.f48);
+        last.amtTot = (+a.f48) + (+b.f48);
+        rows[rows.length-1] = last;
+      }
+    }
+  }
+  function lastClose(){
+    var rows = state.rows;
+    if (!rows || rows.length<2) return 0;
+    return rows[rows.length-2].c;
+  }
+  function amtVsYesterday(today){
+    var rows = state.rows;
+    if (!rows || rows.length<2) return 'flat';
+    var y = rows[rows.length-2].amtTot;
+    return today>y ? 'up' : (today<y ? 'down' : 'flat');
+  }
+
+  /* ---------- 渲染 ---------- */
+  function calcMA(rows, n){
+    var out = new Array(rows.length).fill(null);
+    var sum = 0;
+    for (var i=0;i<rows.length;i++){
+      sum += rows[i].c;
+      if (i>=n) sum -= rows[i-n].c;
+      if (i>=n-1) out[i] = +(sum/n).toFixed(2);
+    }
+    return out;
+  }
+
+  function renderAll(){
+    var rows = state.rows;
+    if (!rows || !rows.length) return;
+    // 顶部卡片：昨日/5日均值
+    var y = rows.length>=2 ? rows[rows.length-2].amtTot : null;
+    $('c-yest').textContent = y==null?'--':fmtAmt(y);
+    $('c-yest-s').textContent = y==null?'--':('日期 ' + (rows[rows.length-2]||{}).date);
+    var n5 = Math.min(5, rows.length), sum5=0;
+    for (var i=rows.length-n5;i<rows.length;i++) sum5 += rows[i].amtTot;
+    var ma5 = sum5/n5;
+    $('c-ma5').textContent = fmtAmt(ma5);
+    $('c-ma5-s').textContent = '近 ' + n5 + ' 个交易日';
+    $('c-ma5').className = 'v ' + (y!=null ? (ma5>y?'up':ma5<y?'down':'flat') : 'flat');
+
+    var dates = rows.map(function(r){return r.date;});
+    var ohlc = rows.map(function(r){return [r.o,r.c,r.l,r.h];});
+    renderPrice(dates, ohlc);
+    renderVol(dates, rows.map(function(r){return r.amtTot;}));
+  }
+
+  function renderPrice(dates, ohlc){
+    var rows = state.rows;
+    var series = [{
+      name:'上证指数', type:'candlestick', data:ohlc,
+      itemStyle:{color:UP, color0:DOWN, borderColor:UP, borderColor0:DOWN, borderWidth:1.2},
+      markLine:{
+        silent:true, symbol:'none',
+        lineStyle:{color:'#c9971f', width:1, type:'dashed'},
+        label:{position:'insideEndTop', color:'#c9971f', fontSize:11,
+               formatter:function(p){ return '现价 ' + p.value.toFixed(2); }},
+        data:[{yAxis: rows[rows.length-1].c}]
+      }
+    }];
+    Object.keys(state.ma).forEach(function(n){
+      if (!state.ma[n]) return;
+      series.push({
+        name:'MA'+n, type:'line', data:calcMA(rows, +n), smooth:true, symbol:'none',
+        lineStyle:{width:1.1, color:MA_COLORS[n]}, itemStyle:{color:MA_COLORS[n]}, z:3
+      });
+    });
+    state.chart = state.chart || echarts.init($('chart'));
+    state.chart.setOption({
+      animation:false,
+      axisPointer:{link:[{xAxisIndex:'all'}]},
+      tooltip:{
+        trigger:'axis', axisPointer:{type:'cross', crossStyle:{color:'#9aa3b2'}},
+        backgroundColor:'rgba(255,255,255,.97)', borderColor:'#e6e9f0',
+        textStyle:{color:'#1c2434', fontSize:12.5}, confine:true,
+        formatter:function(ps){
+          var d = ps[0].axisValue;
+          var r = null;
+          for (var i=0;i<state.rows.length;i++) if (state.rows[i].date===d) { r=state.rows[i]; break; }
+          if (!r) return esc(d);
+          var up = r.c>=r.o;
+          var col = up?UP:DOWN;
+          var html = '<div style="font-weight:600;margin-bottom:5px">'+esc(r.date)+'</div>';
+          html += '<span style="color:'+col+'">开 '+r.o.toFixed(2)+'</span>　<span style="color:'+col+'">收 '+r.c.toFixed(2)+'</span><br>';
+          html += '<span style="color:'+col+'">高 '+r.h.toFixed(2)+'</span>　<span style="color:'+col+'">低 '+r.l.toFixed(2)+'</span><br>';
+          html += '<span style="color:#8a6d1f">两市成交额 ' + fmtAmt(r.amtTot) + '</span>';
+          return html;
+        }
+      },
+      grid:{left:56, right:18, top:26, bottom:26},
+      xAxis:{type:'category', data:dates, boundaryGap:true,
+             axisLine:{lineStyle:{color:'#c9cfda'}}, axisLabel:{color:'#8a93a5', fontSize:11}},
+      yAxis:{scale:true, splitLine:{lineStyle:{color:'#eef1f5'}},
+             axisLabel:{color:'#8a93a5', fontSize:11}},
+      dataZoom:[
+        {type:'inside', xAxisIndex:0, start:Math.max(0,100-Math.round(120*100/dates.length)), end:100},
+        {type:'slider', xAxisIndex:0, bottom:4, height:18,
+         borderColor:'#e6e9f0', backgroundColor:'#f7f9fc', fillerColor:'rgba(201,151,31,.14)',
+         handleStyle:{color:'#c9971f'}, textStyle:{color:'#8a93a5', fontSize:10}}
+      ],
+      series:series
+    }, true);
+  }
+
+  function renderVol(dates, amts){
+    var avg = new Array(dates.length).fill(null);
+    var sum=0;
+    for (var i=0;i<amts.length;i++){
+      sum += amts[i];
+      if (i>=5) sum -= amts[i-5];
+      if (i>=4) avg[i] = +(sum/5).toFixed(0);
+    }
+    var colors = amts.map(function(a, i){
+      if (i===0) return '#c9971f';
+      return a >= amts[i-1] ? 'rgba(225,59,59,.72)' : 'rgba(13,163,92,.72)';
+    });
+    var mode = state.volMode;
+    var series = [];
+    if (mode === 'bar' || mode === 'both'){
+      series.push({name:'两市成交额', type:'bar', data:amts, barMaxWidth:14,
+                   itemStyle:{color:function(p){return colors[p.dataIndex];}}});
+    }
+    if (mode === 'line' || mode === 'both'){
+      series.push({name:'每日成交额', type:'line', data:amts, smooth:true, symbol:'none',
+                   lineStyle:{width:1.8, color:'#c9971f'}, itemStyle:{color:'#c9971f'},
+                   areaStyle:{color:{type:'linear', x:0, y:0, x2:0, y2:1,
+                             colorStops:[{offset:0, color:'rgba(201,151,31,.22)'},
+                                         {offset:1, color:'rgba(201,151,31,0)'}]}}});
+    }
+    series.push({name:'5日均额', type:'line', data:avg, smooth:true, symbol:'none',
+                 lineStyle:{width:1.2, color:'#e8963c', type:'dashed'}, itemStyle:{color:'#e8963c'}});
+    state.chartVol = state.chartVol || echarts.init($('chart-vol'));
+    state.chartVol.setOption({
+      animation:false,
+      tooltip:{
+        trigger:'axis', axisPointer:{type:'shadow'},
+        backgroundColor:'rgba(255,255,255,.97)', borderColor:'#e6e9f0',
+        textStyle:{color:'#1c2434', fontSize:12.5}, confine:true,
+        formatter:function(ps){
+          var d = ps[0].axisValue;
+          var r = null;
+          for (var i=0;i<state.rows.length;i++) if (state.rows[i].date===d){ r=state.rows[i]; break; }
+          if (!r) return esc(d);
+          var prev = i>0 ? state.rows[i-1].amtTot : null;
+          var vs = prev!=null ? ((r.amtTot-prev)/prev*100).toFixed(1)+'%' : '--';
+          return '<div style="font-weight:600;margin-bottom:4px">'+esc(d)+'</div>'+
+                 '<div>两市成交额 ' + fmtAmt(r.amtTot) + '</div>'+
+                 '<div style="color:#8a93a5">环比前一交易日 ' + vs + '</div>'+
+                 '<div style="color:#8a93a5">上证 ' + fmtAmt(r.amt) + ' · 深证 ' + fmtAmt(r.amtTot - r.amt) + '</div>';
+        }
+      },
+      grid:{left:56, right:18, top:24, bottom:22},
+      xAxis:{type:'category', data:dates,
+             axisLine:{lineStyle:{color:'#c9cfda'}}, axisLabel:{color:'#8a93a5', fontSize:11}},
+      yAxis:{type:'value', splitLine:{lineStyle:{color:'#eef1f5'}},
+             axisLabel:{formatter:function(v){ return v>=1e12 ? (v/1e12).toFixed(1)+'万亿' : (v/1e8).toFixed(0)+'亿'; },
+                        color:'#8a93a5', fontSize:11}},
+      dataZoom:[{type:'inside', xAxisIndex:0, start:Math.max(0,100-Math.round(120*100/dates.length)), end:100}],
+      series:series
+    }, true);
+  }
+
+  /* ---------- 控件 ---------- */
+  function bindSeg(id, onPick){
+    var box = $(id);
+    box.addEventListener('click', function(ev){
+      var b = ev.target.closest('button');
+      if (!b) return;
+      box.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+      b.classList.add('on');
+      onPick(b.getAttribute('data-v'));
+    });
+  }
+  RANGES.forEach(function(r){
+    var b = document.createElement('button');
+    b.textContent = r.k; b.setAttribute('data-v', r.d);
+    if (r.d === state.range) b.className = 'on';
+    $('seg-range').appendChild(b);
+  });
+  bindSeg('seg-range', function(v){ state.range = +v; loadData(); });
+  bindSeg('seg-vol', function(v){
+    state.volMode = v;
+    renderVol(state.rows.map(function(r){return r.date;}),
+              state.rows.map(function(r){return r.amtTot;}));
+  });
+
+  document.getElementById('ma-btns').addEventListener('change', function(ev){
+    var c = ev.target;
+    if (c.dataset && c.dataset.ma){
+      state.ma[c.dataset.ma] = c.checked;
+      renderPrice(state.rows.map(function(r){return r.date;}),
+                  state.rows.map(function(r){return [r.o,r.c,r.l,r.h];}));
+    }
+  });
+
+  $('freq').addEventListener('change', function(){
+    startTimer(+(this.value));
+  });
+  function startTimer(ms){
+    if (state.timer) clearInterval(state.timer);
+    state.timer = null;
+    if (ms>0) state.timer = setInterval(function(){ loadData(); }, ms);
+  }
+
+  /* ---------- 启动 ---------- */
+  loadData().then(function(){ startTimer(5000); });
+
+  window.addEventListener('resize', function(){
+    if (state.chart) state.chart.resize();
+    if (state.chartVol) state.chartVol.resize();
+  });
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden){
+      if (state.timer) clearInterval(state.timer);
+    } else {
+      loadData();
+      var f = $('freq');
+      startTimer(+(f.value));
+    }
+  });
+})();
+</script>
+</body>
+</html>
