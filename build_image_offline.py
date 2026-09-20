@@ -89,7 +89,13 @@ def registry_api(mirror, path, accept, use_token=True, timeout=180):
 
 
 def pull_layer_blob(digest, size):
-    """多源 + 匿名 fallback 拉取一个层 blob，解压返回 layer 字节"""
+    """多源 + 匿名 fallback 拉取一个层 blob，解压返回 layer 字节（带本地缓存，重打包免重拉）"""
+    cache_dir = os.path.join(ROOT, "_layer_cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_file = os.path.join(cache_dir, digest.split(":")[-1] + ".layer")
+    if os.path.exists(cache_file):
+        with open(cache_file, "rb") as f:
+            return f.read()
     for mirror in MIRRORS:
         for use_tok in (True, False):
             try:
@@ -99,8 +105,12 @@ def pull_layer_blob(digest, size):
                 if len(data) < min(size - 512, size):  # 完整性粗校验（防空响应用 200 糊弄）
                     pass
                 if data[:2] == b"\x1f\x8b":
-                    return gzip.decompress(data)
-                return data
+                    layer = gzip.decompress(data)
+                else:
+                    layer = data
+                with open(cache_file, "wb") as f:
+                    f.write(layer)
+                return layer
             except Exception as e:
                 log("    blob %s %s tok=%s -> %s" % (digest[:12], mirror, use_tok, str(e)[:120]))
     raise RuntimeError("all mirrors failed for blob %s" % digest)
@@ -160,7 +170,11 @@ def build_config(base_cfg, diff_ids):
         "Interval": 60000000000, "Timeout": 10000000000,
         "StartPeriod": 15000000000, "Retries": 3,
     }
-    cfg["rootfs"]["diff_ids"] = diff_ids
+    # Docker 规范：diff_ids 必须带 "sha256:" 前缀（docker load 严格校验，缺前缀直接报
+    # "invalid diffID ... expected X, got sha256:X"）。官方 config 自带前缀，应用层也要补。
+    cfg["rootfs"]["diff_ids"] = [
+        d if d.startswith("sha256:") else "sha256:" + d for d in diff_ids
+    ]
     hist = list(cfg.get("history") or [])
     hist.append({"created_by": "ADD gold_server.py gold/ (offline builder)",
                  "empty_layer": False})
