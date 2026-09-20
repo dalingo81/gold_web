@@ -19,7 +19,7 @@ services:
       TZ: Asia/Shanghai
       GOLD_HOST: "::"        # IPv6 双栈：同一个 socket 同时接受 IPv4 与 IPv6
       GOLD_PORT: 8765        # 容器内端口，改这里要同步改 ports 右侧
-      PAGES: "/ashare/:ashare"   # 双页面：黄金在 / ，A股成交额在 /ashare/
+      PAGES: "/gold/:gold,/ashare/:ashare"   # 导航 / + 黄金 /gold/ + A股 /ashare/
     healthcheck:
       test: ["CMD", "python", "-c", "import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('GOLD_PORT','8765')+'/api/ping',timeout=5)"]
       interval: 60s

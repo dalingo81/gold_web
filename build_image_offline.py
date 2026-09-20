@@ -24,8 +24,8 @@ import urllib.request
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SERVER_PY = os.path.join(ROOT, "gold_server.py")
-# 容器内要打包的静态目录（相对 ROOT）：黄金页 + A股成交额页
-WEB_DIRS = ["gold", "ashare"]
+# 容器内要打包的静态目录（相对 ROOT）：导航 + 黄金 + A股成交额
+WEB_DIRS = ["home", "gold", "ashare"]
 APP_DIR = os.path.join(ROOT, "gold")
 
 MIRRORS = [
