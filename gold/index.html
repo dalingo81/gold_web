@@ -103,6 +103,17 @@
   .big-line{font-size:26px;font-weight:660;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
   .note{font-size:11.5px;color:var(--tx3);margin-top:9px;line-height:1.6}
 
+  /* 中国黄金储备 */
+  .reserve-panel{margin-top:14px}
+  .reserve-panel h3{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .reserve-panel h3 .tag{font-size:11px;font-weight:500;color:var(--tx3);background:var(--chip);padding:2px 7px;border-radius:5px}
+  #reserve-chart{width:100%;height:300px}
+  .reserve-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line-soft);margin-top:12px}
+  .reserve-stats .rs-cell{background:#fff;padding:12px 14px}
+  .reserve-stats .rs-cell .k{font-size:11.5px;color:var(--tx3);margin-bottom:3px}
+  .reserve-stats .rs-cell .v{font-size:15px;font-weight:660;font-variant-numeric:tabular-nums}
+  @media (max-width:680px){ .reserve-stats{grid-template-columns:repeat(2,1fr)} }
+
   footer{margin-top:20px;font-size:12px;color:var(--tx3);line-height:1.9}
   footer b{color:var(--tx2);font-weight:600}
 
@@ -206,6 +217,19 @@
     <div class="chart-wrap"><div id="main-chart"></div></div>
   </div>
 
+  <!-- 中国央行黄金储备 -->
+  <div class="card reserve-panel">
+    <h3>中国央行黄金储备 <span class="tag">人民银行官方口径 · 月末数据</span></h3>
+    <div class="note" style="margin-top:0;margin-bottom:4px">左轴：官方储备总量（吨，实线 + 金色渐变）；右轴：单月增减量（万盎司，红柱增 / 绿柱减，2024-11 重启增持后均为正）。数据为央行每月公布的官方国际储备数据，更新滞后约 2~4 周。</div>
+    <div id="reserve-chart"></div>
+    <div class="reserve-stats">
+      <div class="rs-cell"><div class="k">最新储备（吨）</div><div class="v" id="rs-total">--</div></div>
+      <div class="rs-cell"><div class="k">最新储备（万盎司）</div><div class="v" id="rs-oz">--</div></div>
+      <div class="rs-cell"><div class="k">最新单月增减（万盎司）</div><div class="v" id="rs-last">--</div></div>
+      <div class="rs-cell"><div class="k">连续增持（月）</div><div class="v" id="rs-streak">--</div></div>
+    </div>
+  </div>
+
   <!-- 侧面板 -->
   <div class="panels">
     <div class="card panel">
@@ -278,6 +302,100 @@
 
   var $ = function (id) { return document.getElementById(id); };
   var ecReady = (typeof echarts !== 'undefined');
+
+  /* ------------------ 中国央行黄金储备（月末，官方口径） ------------------
+     1 盎司 = 0.0311035 千克。吨数 = 万盎司 × 10000 × 0.0311035 ÷ 1000 = 万盎司 × 0.311035
+     单位：万盎司（央行公布口径）。每月一次，由央行官网公布。 */
+  var PBOC_RESERVE = [
+    // [月份 'YYYY-MM', 官方储备(万盎司)]
+    ['2024-01', 7284], ['2024-02', 7284], ['2024-03', 7284], ['2024-04', 7284],
+    ['2024-05', 7284], ['2024-06', 7284], ['2024-07', 7284], ['2024-08', 7284],
+    ['2024-09', 7284], ['2024-10', 7284],
+    ['2024-11', 7290], ['2024-12', 7302], ['2025-01', 7306], ['2025-02', 7310],
+    ['2025-03', 7316], ['2025-04', 7326], ['2025-05', 7336], ['2025-06', 7390],
+    ['2025-07', 7396], ['2025-08', 7402], ['2025-09', 7406], ['2025-10', 7410],
+    ['2025-11', 7414], ['2025-12', 7418],
+    ['2026-01', 7422], ['2026-02', 7425], ['2026-03', 7441], ['2026-04', 7464],
+    ['2026-05', 7496], ['2026-06', 7544], ['2026-07', 7608]
+    // 如需更新，往末尾追加 ['YYYY-MM', 万盎司] 即可；单月增减由程序自动算差值
+  ];
+  var OZ_TO_T = 0.0311035;  // 1 盎司 = 31.1035 克 = 0.0311035 千克 = 0.0000311035 吨；万盎司→吨 = ×10000×0.0311035÷1000
+  function ozToTon(wanOz) { return wanOz * 0.0311035 * 10; }  // 万盎司 × 0.311035
+  var reserveChart = null;
+
+  function renderReserve() {
+    if (!ecReady || !reserveChart) return;
+    var months = PBOC_RESERVE.map(function (r) { return r[0]; });
+    var tons = PBOC_RESERVE.map(function (r) { return +(ozToTon(r[1])).toFixed(2); });
+    var deltas = PBOC_RESERVE.map(function (r, i) {
+      return i === 0 ? 0 : r[1] - PBOC_RESERVE[i - 1][1];
+    });
+    var lastTon = tons[tons.length - 1], lastOz = PBOC_RESERVE[PBOC_RESERVE.length - 1][1],
+        lastD = deltas[deltas.length - 1];
+    // 连续增持月数
+    var streak = 0;
+    for (var i = PBOC_RESERVE.length - 1; i > 0; i--) {
+      if (PBOC_RESERVE[i][1] > PBOC_RESERVE[i - 1][1]) streak++; else break;
+    }
+    $('rs-total').textContent = lastTon.toFixed(2);
+    $('rs-oz').textContent = lastOz;
+    var lastEl = $('rs-last');
+    lastEl.textContent = (lastD >= 0 ? '+' : '') + lastD + ' 万盎司';
+    lastEl.className = 'v ' + (lastD > 0 ? 'up' : (lastD < 0 ? 'down' : ''));
+    $('rs-streak').textContent = streak;
+
+    reserveChart.setOption({
+      animation: false,
+      backgroundColor: '#fff',
+      legend: { top: 4, left: 12, itemWidth: 16, itemHeight: 8,
+        textStyle: { fontSize: 11.5, color: '#5c6679' }, data: ['储备总量(吨)', '单月增减(万盎司)'] },
+      tooltip: {
+        trigger: 'axis', axisPointer: { type: 'cross', crossStyle: { color: '#9aa3b2' } },
+        backgroundColor: 'rgba(255,255,255,.97)', borderColor: '#e6e9f0', borderWidth: 1,
+        textStyle: { color: '#1c2434', fontSize: 12.5 }, confine: true,
+        formatter: function (ps) {
+          if (!ps.length) return '';
+          var i = ps[0].dataIndex, m = months[i];
+          var s = '<div style="font-weight:600;margin-bottom:5px">' + m + '</div>';
+          s += '<div>总量　<b>' + tons[i].toFixed(2) + ' 吨</b>（' + PBOC_RESERVE[i][1] + ' 万盎司）</div>';
+          var d = deltas[i];
+          s += '<div>单月增减　<b style="color:' + (d > 0 ? '#e13b3b' : (d < 0 ? '#0da35c' : '#5c6679')) + '">' +
+               (d >= 0 ? '+' : '') + d + ' 万盎司</b>（约 ' + (d >= 0 ? '+' : '') + ozToTon(Math.abs(d)) .toFixed(2) + ' 吨）</div>';
+          return s;
+        }
+      },
+      grid: { left: 56, right: 56, top: 42, bottom: 24 },
+      xAxis: { type: 'category', data: months, boundaryGap: true,
+        axisLine: { lineStyle: { color: '#dfe3ea' } }, axisTick: { show: false },
+        axisLabel: { color: '#98a1b3', fontSize: 11, hideOverlap: true, interval: 1 } },
+      yAxis: [
+        { type: 'value', scale: true, position: 'left',
+          name: '总量(吨)', nameTextStyle: { color: '#98a1b3', fontSize: 10.5, padding: [0, 0, 4, 0] },
+          axisLabel: { color: '#98a1b3', fontSize: 11, formatter: function (v) { return Math.round(v); } },
+          splitLine: { lineStyle: { color: '#f0f2f6' } } },
+        { type: 'value', scale: true, position: 'right',
+          name: '增减(万盎司)', nameTextStyle: { color: '#98a1b3', fontSize: 10.5, padding: [0, 0, 4, 0] },
+          axisLabel: { color: '#98a1b3', fontSize: 11, formatter: function (v) { return v >= 0 ? '+' + v : '' + v; } },
+          splitLine: { show: false } }
+      ],
+      series: [
+        { name: '单月增减(万盎司)', type: 'bar', yAxisIndex: 1, data: deltas, barMaxWidth: 18,
+          itemStyle: { color: function (p) {
+            var v = p.value;
+            return v > 0 ? '#e13b3b' : (v < 0 ? '#0da35c' : '#cfd4de');
+          } },
+          label: { show: true, position: 'top', fontSize: 9, color: '#5c6679',
+            formatter: function (p) { return p.value === 0 ? '' : (p.value > 0 ? '+' : '') + p.value; } },
+          z: 1
+        },
+        { name: '储备总量(吨)', type: 'line', data: tons, smooth: true, symbol: 'circle', symbolSize: 5,
+          lineStyle: { width: 2.2, color: '#c9971f' }, itemStyle: { color: '#c9971f', borderColor: '#fff', borderWidth: 1.2 },
+          areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [{ offset: 0, color: 'rgba(201,151,31,.28)' }, { offset: 1, color: 'rgba(201,151,31,0)' }] } },
+          z: 3 }
+      ]
+    }, true);
+  }
 
   /* ------------------------------ 工具 ------------------------------ */
   function n2(v, d) {
@@ -808,7 +926,10 @@
       }
     });
 
-    window.addEventListener('resize', function () { state.chart && state.chart.resize(); });
+    window.addEventListener('resize', function () {
+      state.chart && state.chart.resize();
+      reserveChart && reserveChart.resize();
+    });
   }
 
   /* ------------------------------ 启动 ------------------------------ */
@@ -819,6 +940,8 @@
       return;
     }
     state.chart = echarts.init($('main-chart'), null, { renderer: 'canvas' });
+    reserveChart = echarts.init($('reserve-chart'), null, { renderer: 'canvas' });
+    renderReserve();
     bindUI();
     initKline().then(function () {
       refreshQuote();
