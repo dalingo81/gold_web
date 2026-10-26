@@ -612,8 +612,13 @@
 
     var series = [{
       name: '日K', type: 'candlestick', data: ohlc,
-      itemStyle: { color: '#e13b3b', color0: '#0da35c', borderColor: '#e13b3b', borderColor0: '#0da35c', borderWidth: 1.2 },
-      markLine: {
+      itemStyle: { color: '#e13b3b', color0: '#0da35c', borderColor: '#e13b3b', borderColor0: '#0da35c', borderWidth: 1.2 }
+    }];
+    // 参考线依赖汇率换算；首屏 K 线可能早于行情到达，此时 conv() 返回 null，
+    // 若把 yAxis:null 交给 markLine，ECharts 渲染期会抛 "reading 'coord'" 导致整张主图空白。
+    var _mkVal = conv(latestCloseRaw());
+    if (_mkVal != null && isFinite(_mkVal)) {
+      series[0].markLine = {
         silent: true, symbol: 'none', animation: false,
         lineStyle: { type: 'dashed', width: 1, color: '#c9971f' },
         label: {
@@ -621,9 +626,9 @@
           backgroundColor: '#c9971f', borderRadius: 3,
           formatter: function (p) { return n2(conv(latestCloseRaw())); }
         },
-        data: [{ yAxis: conv(latestCloseRaw()) }]
-      }
-    }];
+        data: [{ yAxis: _mkVal }]
+      };
+    }
     var legendData = ['日K'];
 
     Object.keys(state.mas).forEach(function (key) {
